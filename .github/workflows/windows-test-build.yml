@@ -1,0 +1,65 @@
+name: Windows x64 test build
+
+on:
+  push:
+    branches: [build/windows-x64-20261025]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: windows-2022
+    timeout-minutes: 15
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - name: Check out reviewed source snapshot
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: 60b6e0dfccc0cfbca74b8349ea0d3d75a13ea9b5
+          persist-credentials: false
+
+      - name: Rebuild Release x64 with Visual Studio
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $vswhere = Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio\Installer\vswhere.exe'
+          $msbuild = & $vswhere -latest -products '*' -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -find 'MSBuild\**\Bin\MSBuild.exe' | Select-Object -First 1
+          if (-not $msbuild) { throw 'MSBuild with the C++ tools was not found.' }
+          $output = Join-Path $env:GITHUB_WORKSPACE 'artifacts\BF1-Windows-x64'
+          $intermediate = Join-Path $env:GITHUB_WORKSPACE '.build\Release-x64'
+          New-Item -ItemType Directory -Force -Path $output, $intermediate | Out-Null
+          $buildLog = Join-Path $output 'build.log'
+          $binaryLog = Join-Path $output 'build.binlog'
+          & $msbuild BF1_External.sln /t:Rebuild /m /nologo /p:Configuration=Release /p:Platform=x64 "/p:OutDir=$output\" "/p:IntDir=$intermediate\" "/bl:$binaryLog" "/flp:logfile=$buildLog;verbosity=normal"
+          if ($LASTEXITCODE -ne 0) { throw "MSBuild failed with exit code $LASTEXITCODE. See build.log." }
+          $exe = Join-Path $output 'BF1_External.exe'
+          if (-not (Test-Path $exe)) { throw 'Build returned successfully but BF1_External.exe is missing.' }
+          $hash = (Get-FileHash -LiteralPath $exe -Algorithm SHA256).Hash.ToLowerInvariant()
+          "$hash  BF1_External.exe" | Set-Content -LiteralPath (Join-Path $output 'SHA256SUMS.txt') -Encoding utf8
+          @(
+            'BF1 external - Windows x64 test build',
+            'Source commit: 60b6e0dfccc0cfbca74b8349ea0d3d75a13ea9b5',
+            'Configuration: Release | x64; original v143 project settings.',
+            'Built on GitHub Actions windows-2022. No application source changes were applied.',
+            'This is a compilation artifact, not a runtime-tested or security-certified release.',
+            'The defects described in the code review have NOT been repaired.',
+            'No game, input driver, or executable was launched during this build.',
+            'Requires Windows x64 and the Microsoft Visual C++ v14 x64 runtime if not already installed.',
+            'The original program also depends on an external mouse/input device setup, not included here.',
+            'Current game compatibility and hard-coded addresses have not been verified.',
+            'Do not disable security protections or install unverified drivers to run this build.',
+            "Executable SHA256: $hash"
+          ) | Set-Content -LiteralPath (Join-Path $output 'BUILD-INFO.txt') -Encoding utf8
+          "### Windows x64 build succeeded`n`nSource: 60b6e0dfccc0cfbca74b8349ea0d3d75a13ea9b5`n`nSHA256: $hash`n`nCompilation only; not runtime-tested." | Add-Content $env:GITHUB_STEP_SUMMARY
+
+      - name: Upload executable and build diagnostics
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: BF1-Windows-x64-60b6e0d
+          path: artifacts/BF1-Windows-x64/
+          if-no-files-found: error
+          retention-days: 7
