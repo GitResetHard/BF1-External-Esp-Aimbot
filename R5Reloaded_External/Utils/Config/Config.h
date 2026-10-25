@@ -12,11 +12,12 @@ public:
     bool vDistance = true;
     bool vName = false;
 
-    bool aimbot = true;
+    // The optional automation backend is never enabled automatically.
+    bool aimbot = false;
 
     int fov = 200;
-    bool fovCircle = true;
-    float speed = 0.1;
+    bool fovCircle = false;
+    float speed = 0.1f;
 };
 
 extern cfg g;
