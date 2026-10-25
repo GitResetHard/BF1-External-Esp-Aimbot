@@ -1,0 +1,102 @@
+name: Windows x64 optional mouse build
+
+on:
+  push:
+    branches: [fix/optional-mouse-backend-20261025]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: windows-2022
+    timeout-minutes: 15
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - name: Check out the patched source
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Rebuild Windows x64 Release
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $vswhere = Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio\Installer\vswhere.exe'
+          $msbuild = & $vswhere -latest -products '*' -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -find 'MSBuild\**\Bin\MSBuild.exe' | Select-Object -First 1
+          if (-not $msbuild) { throw 'MSBuild with C++ tools was not found.' }
+          "MSBUILD_PATH=$msbuild" | Add-Content $env:GITHUB_ENV
+          $output = Join-Path $env:GITHUB_WORKSPACE 'artifacts\BF1-Windows-x64-optional-mouse'
+          $intermediate = Join-Path $env:GITHUB_WORKSPACE '.build\Release-x64'
+          New-Item -ItemType Directory -Force -Path $output, $intermediate | Out-Null
+          $buildLog = Join-Path $output 'build.log'
+          $binaryLog = Join-Path $output 'build.binlog'
+          & $msbuild BF1_External.sln /t:Rebuild /m /nologo /p:Configuration=Release /p:Platform=x64 "/p:OutDir=$output\" "/p:IntDir=$intermediate\" "/bl:$binaryLog" "/flp:logfile=$buildLog;verbosity=normal"
+          if ($LASTEXITCODE -ne 0) { throw "Application build failed: $LASTEXITCODE" }
+          $exe = Join-Path $output 'BF1_External.exe'
+          if (-not (Test-Path $exe)) { throw 'Expected executable is missing.' }
+          $hash = (Get-FileHash -LiteralPath $exe -Algorithm SHA256).Hash.ToLowerInvariant()
+          "$hash  BF1_External.exe" | Set-Content (Join-Path $output 'SHA256SUMS.txt') -Encoding utf8
+          @(
+            'BF1 external - optional mouse backend fix',
+            "Source commit: $env:GITHUB_SHA",
+            'Configuration: Release | x64; v143; C++17.',
+            'The optional G HUB backend is checked once, not on every frame.',
+            'A missing backend no longer blocks the information display or menu.',
+            'Automated mouse movement defaults to off and is disabled when the optional backend is unavailable.',
+            'Visual-only mode does not require Logitech hardware or G HUB software.',
+            'No alternative automated mouse backend has been added.',
+            'Blocking pause and per-entity diagnostic beep were removed.',
+            'Other defects from the original code review are not addressed by this focused patch.',
+            'The game application and any input drivers are not launched or installed in CI.',
+            'Headless UI regression tests use a mock input backend and no target process handle.',
+            'Current game compatibility and hard-coded game addresses are unverified.',
+            'Extract the ZIP to a new folder. Delete toggles the menu after initialization.',
+            'An informational visual-only-mode message is expected without the optional backend.',
+            'See regression-missing.log and regression-available.log for actual test results.',
+            "Executable SHA256: $hash"
+          ) | Set-Content (Join-Path $output 'BUILD-INFO.txt') -Encoding utf8
+          git diff 60b6e0dfccc0cfbca74b8349ea0d3d75a13ea9b5 HEAD -- R5Reloaded_External tests .github | Set-Content (Join-Path $output 'source-changes.patch') -Encoding utf8
+          if ($LASTEXITCODE -ne 0) { throw 'Could not generate the source patch.' }
+          "### Application build succeeded`nSource: $env:GITHUB_SHA`nSHA256: $hash" | Add-Content $env:GITHUB_STEP_SUMMARY
+
+      - name: Build and run optional-backend regression tests
+        timeout-minutes: 4
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $output = Join-Path $env:GITHUB_WORKSPACE 'artifacts\BF1-Windows-x64-optional-mouse'
+          $testOutput = Join-Path $env:GITHUB_WORKSPACE '.build\tests\out'
+          $testIntermediate = Join-Path $env:GITHUB_WORKSPACE '.build\tests\obj'
+          New-Item -ItemType Directory -Force -Path $testOutput, $testIntermediate | Out-Null
+          $testBuildLog = Join-Path $output 'regression-build.log'
+          & $env:MSBUILD_PATH tests\optional_mouse_backend_test.vcxproj /t:Rebuild /m /nologo /p:Configuration=Release /p:Platform=x64 "/p:OutDir=$testOutput\" "/p:IntDir=$testIntermediate\" "/flp:logfile=$testBuildLog;verbosity=normal"
+          if ($LASTEXITCODE -ne 0) { throw "Regression test build failed: $LASTEXITCODE" }
+          $testExe = Join-Path $testOutput 'optional_mouse_backend_test.exe'
+          foreach ($case in @('missing', 'available')) {
+            $stdout = Join-Path $output "regression-$case.log"
+            $stderr = Join-Path $output "regression-$case.stderr.log"
+            $process = Start-Process -FilePath $testExe -ArgumentList $case -PassThru -NoNewWindow -RedirectStandardOutput $stdout -RedirectStandardError $stderr
+            if (-not $process.WaitForExit(30000)) {
+              & taskkill /PID $process.Id /T /F
+              throw "Regression $case timed out (possible blocking UI regression)."
+            }
+            $process.WaitForExit()
+            $process.Refresh()
+            Get-Content $stdout
+            Get-Content $stderr
+            if ($process.ExitCode -ne 0) { throw "Regression $case failed: $($process.ExitCode)" }
+          }
+          'Both mock-backend cases passed: 180 UI frames each, one initialization probe, zero mouse commands.' | Add-Content $env:GITHUB_STEP_SUMMARY
+
+      - name: Upload executable and build diagnostics
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: BF1-Windows-x64-optional-mouse
+          path: artifacts/BF1-Windows-x64-optional-mouse/
+          if-no-files-found: error
+          retention-days: 7
