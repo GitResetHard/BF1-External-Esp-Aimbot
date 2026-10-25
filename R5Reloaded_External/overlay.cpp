@@ -2,10 +2,58 @@
 #include "ImGui\customed.h"
 #include "Utils\NotSDK.h"
 
-
 #include "Mouse.h"
 #include <Windows.h>
 #include <iostream>
+
+namespace
+{
+    // Probe the optional backend once. Ordinary mouse/menu input does not use it.
+    class OptionalMouseBackend
+    {
+    public:
+        OptionalMouseBackend()
+            : available_(mouseGHUB != nullptr && mouseGHUB->mouse_open() != FALSE)
+        {
+            if (!available_)
+            {
+                g.aimbot = false;
+                g.fovCircle = false;
+                std::cout << "[INFO] Optional G HUB input backend unavailable. "
+                             "Visual overlay and menu remain enabled; automated mouse movement is disabled.\n";
+            }
+        }
+
+        ~OptionalMouseBackend()
+        {
+            if (available_ && mouseGHUB != nullptr)
+                mouseGHUB->mouse_close();
+        }
+
+        OptionalMouseBackend(const OptionalMouseBackend&) = delete;
+        OptionalMouseBackend& operator=(const OptionalMouseBackend&) = delete;
+        bool available() const noexcept { return available_; }
+
+    private:
+        bool available_;
+    };
+
+    bool HasMouseBackend()
+    {
+        static OptionalMouseBackend backend;
+        return backend.available();
+    }
+
+    void DisableUnavailableMouseFeatures()
+    {
+        if (!HasMouseBackend())
+        {
+            g.aimbot = false;
+            g.fovCircle = false;
+        }
+    }
+}
+
 // Set your ID
 char LocalName[32] = "BoranCanOzel";
 
@@ -18,17 +66,15 @@ Vector3 LocalPosition = Vector3(0.f, 0.f, 0.f);
 
 void Overlay::m_Info()
 {
-
-    if (!mouseGHUB->mouse_open()) {
-        std::cout << "Mouse software not open" << std::endl;
-        system("pause");
-        return; // Exit the program if the mouse software is not open
-    }
+    DisableUnavailableMouseFeatures();
     ImGui::SetNextWindowPos(ImVec2(0, 0));
     ImGui::SetNextWindowSize(ImVec2((float)GameRect.right, (float)GameRect.bottom));
     ImGui::Begin("##Info", (bool*)NULL, ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoBackground | ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoInputs);
 
     ImGui::Text("PythonP Software [%.1f FPS]", ImGui::GetIO().Framerate);
+    if (!HasMouseBackend())
+        ImGui::TextUnformatted("Visual-only mode: optional mouse automation backend unavailable.");
+
     // Time
     time_t t = time(nullptr);
     struct tm nw;
@@ -40,6 +86,8 @@ void Overlay::m_Info()
 
 void Overlay::m_Menu()
 {
+    DisableUnavailableMouseFeatures();
+    const bool mouseAvailable = HasMouseBackend();
     ImGui::Begin("PythonP BF 1 [ EXTERNAL ]", &ShowMenu, ImGuiWindowFlags_AlwaysAutoResize);
 
     ImGui::Toggle("ESP", &g.ESP, g.ESP);
@@ -50,14 +98,21 @@ void Overlay::m_Menu()
     ImGui::Checkbox("Line", &g.vLine);
     ImGui::Checkbox("HealthBar", &g.vHealth);
     ImGui::Checkbox("Distance", &g.vDistance);
+    ImGui::BeginDisabled(!mouseAvailable);
     ImGui::Checkbox("Aimbot", &g.aimbot);
     if (g.aimbot) {
-        ImGui::SliderFloat("Speed", &g.speed, 0.0, 1.0);
+        ImGui::SliderFloat("Speed", &g.speed, 0.0f, 1.0f);
         ImGui::SliderInt("FOV", &g.fov, 0, 500);
         ImGui::Checkbox("FOV Circle", &g.fovCircle);
     }
-    else if(g.fovCircle) {
+    else if (g.fovCircle) {
         g.fovCircle = false;
+    }
+    ImGui::EndDisabled();
+    if (!mouseAvailable)
+    {
+        ImGui::TextUnformatted("Mouse automation unavailable (optional G HUB backend).");
+        ImGui::TextUnformatted("Your normal mouse still controls this menu. No driver is required for visual-only mode.");
     }
     ImGui::Checkbox("Name", &g.vName);
 
@@ -71,11 +126,13 @@ int y_offset = 0;
 // Player Only
 void Overlay::m_ESP()
 {
+    DisableUnavailableMouseFeatures();
+    const bool canAutomateMouse = HasMouseBackend() && g.aimbot;
+
     // ImGui Window
     ImGui::SetNextWindowPos(ImVec2(0, 0));
     ImGui::SetNextWindowSize(ImVec2((float)GameRect.right, (float)GameRect.bottom));
     ImGui::Begin("##ESP", (bool*)NULL, ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoBackground | ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoInputs);
-
 
     float distance = 999999;
     float shortest_distance = 999999;
@@ -85,7 +142,7 @@ void Overlay::m_ESP()
     float startAngle = 0.0f;
     float endAngle = 2 * 3.14159265f;
     float fovLineWidth = 1.0f;
-    
+
     for (int i = 0; i < 64; i++)
     {
         // Get Player
@@ -100,7 +157,7 @@ void Overlay::m_ESP()
         if (!clientSoldierEntity)
             continue;
 
-        // Get PlayerName & Get LocalPlayer "By NAME" <------- ”ñí‚Éd—v
+        // Get PlayerName & Get LocalPlayer by name.
         char pName[32];
         ReadProcessMemory(m.pHandle, (void*)(Player + offset::PlayerName), &pName, sizeof(pName), NULL);
 
@@ -139,7 +196,7 @@ void Overlay::m_ESP()
         // WorldToScreen
         Vector2 ScreenPosition = Vector2(0.f, 0.f);
         WorldToScreen(Position, ScreenPosition);
-  
+
         // Invalid Player
         if (ScreenPosition == Vector2(0.f, 0.f))
             continue;
@@ -154,9 +211,7 @@ void Overlay::m_ESP()
         if (g.vLine)
             DrawLine(ImVec2(GameRect.right / 2.f, GameRect.bottom), ImVec2(ScreenPosition.x, ScreenPosition.y), color, 1.f);
 
-        
-
-        // Box—p
+        // Box bounds
         Vector3 BoxTop = Position + GetAABB(clientSoldierEntity).Max;
         Vector3 BoxBottom = Position + GetAABB(clientSoldierEntity).Min;
         Vector2 vTop;
@@ -176,16 +231,14 @@ void Overlay::m_ESP()
             DrawLine(ImVec2(BoxMiddle + (Width / 2.f), vTop.y), ImVec2(BoxMiddle + (Width / 2.f), ScreenPosition.y), color, 1.f);
             DrawLine(ImVec2(BoxMiddle - (Width / 2.f), vTop.y), ImVec2(BoxMiddle - (Width / 2.f), ScreenPosition.y), color, 1.f);
         }
-        // AIMBOT
-        if (g.aimbot) {
+        // AIMBOT: unavailable backends must never receive movement commands.
+        if (canAutomateMouse) {
             ImVec2 point2(ScreenPosition.x, ScreenPosition.y - Width - (Width / 2.f) + y_offset);
 
             ImGui::GetWindowDrawList()->AddCircle(point2, 1, color, 64, 1.0f);
-            Beep(500 + i * 100, 100);
 
             if (color == ESP_Visible && GetAsyncKeyState(VK_RBUTTON) & 0x8000) {
                 ImVec2 point1(GameRect.right / 2.f, GameRect.bottom / 2.f);
-                
 
                 distance = sqrt((point2.x - point1.x) * (point2.x - point1.x) + (point2.y - point1.y) * (point2.y - point1.y));
                 if (distance < shortest_distance && g.fov > distance) {
@@ -196,14 +249,13 @@ void Overlay::m_ESP()
             }
 
         }
-        if (g.fovCircle) {
+        if (canAutomateMouse && g.fovCircle) {
             float time = ImGui::GetTime();
 
             // Calculate RGB values with smooth transitions
             int red = static_cast<int>((sinf(time) * 0.5f + 0.5f) * 255);
             int green = static_cast<int>((cosf(time) * 0.5f + 0.5f) * 255);
             int blue = static_cast<int>((sinf(time * 0.5f) * 0.5f + 0.5f) * 255);
-
 
             ImU32 rgb_color = IM_COL32(red, green, blue, 255);
             ImVec2 center(GameRect.right / 2.f, GameRect.bottom / 2.f);
@@ -228,9 +280,8 @@ void Overlay::m_ESP()
         float TextCentor = textSize.x / 2.f;
         String(ImVec2(ScreenPosition.x - TextCentor, ScreenPosition.y), ImColor(1.f, 1.f, 1.f, 1.f), vContext.c_str());
     }
-    if (move_x != 0 || move_y != 0) {
+    if (canAutomateMouse && (move_x != 0 || move_y != 0)) {
         mouseGHUB->mouse_move(0, move_x, move_y, 0);
-        //std::cout << move_x << std::endl;
     }
     ImGui::End();
 }
