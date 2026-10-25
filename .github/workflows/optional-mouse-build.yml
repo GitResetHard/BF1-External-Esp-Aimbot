@@ -2,7 +2,9 @@ name: Windows x64 optional mouse build
 
 on:
   push:
-    branches: [fix/optional-mouse-backend-20261025]
+    branches: [main, fix/optional-mouse-backend-20261025]
+  pull_request:
+    branches: [main]
   workflow_dispatch:
 
 permissions:
