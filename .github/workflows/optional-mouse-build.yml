@@ -1,4 +1,4 @@
-name: Windows x64 optional mouse build
+name: Windows x64 drawing and UI checks
 
 on:
   push:
@@ -32,7 +32,7 @@ jobs:
           $msbuild = & $vswhere -latest -products '*' -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -find 'MSBuild\**\Bin\MSBuild.exe' | Select-Object -First 1
           if (-not $msbuild) { throw 'MSBuild with C++ tools was not found.' }
           "MSBUILD_PATH=$msbuild" | Add-Content $env:GITHUB_ENV
-          $output = Join-Path $env:GITHUB_WORKSPACE 'artifacts\BF1-Windows-x64-optional-mouse'
+          $output = Join-Path $env:GITHUB_WORKSPACE 'artifacts\BF1-Windows-x64-drawing-v2'
           $intermediate = Join-Path $env:GITHUB_WORKSPACE '.build\Release-x64'
           New-Item -ItemType Directory -Force -Path $output, $intermediate | Out-Null
           $buildLog = Join-Path $output 'build.log'
@@ -44,33 +44,37 @@ jobs:
           $hash = (Get-FileHash -LiteralPath $exe -Algorithm SHA256).Hash.ToLowerInvariant()
           "$hash  BF1_External.exe" | Set-Content (Join-Path $output 'SHA256SUMS.txt') -Encoding utf8
           @(
-            'BF1 external - optional mouse backend fix',
+            'BF1 drawing repairs and diagnostics v2',
             "Source commit: $env:GITHUB_SHA",
             'Configuration: Release | x64; v143; C++17.',
-            'The optional G HUB backend is checked once, not on every frame.',
-            'A missing backend no longer blocks the information display or menu.',
-            'Automated mouse movement defaults to off and is disabled when the optional backend is unavailable.',
-            'Visual-only mode does not require Logitech hardware or G HUB software.',
-            'No alternative automated mouse backend has been added.',
-            'Blocking pause and per-entity diagnostic beep were removed.',
-            'Other defects from the original code review are not addressed by this focused patch.',
-            'The game application and any input drivers are not launched or installed in CI.',
-            'Headless UI regression tests use a mock input backend and no target process handle.',
-            'Current game compatibility and hard-coded game addresses are unverified.',
-            'Extract the ZIP to a new folder. Delete toggles the menu after initialization.',
-            'An informational visual-only-mode message is expected without the optional backend.',
-            'See regression-missing.log and regression-available.log for actual test results.',
+            'Actual overlay implementation changed: checked projections, finite/bounded geometry, clamped health bars.',
+            'Drawing uses the background draw list rather than a full-screen ImGui window.',
+            'Local-player identification precedes team filtering; stale local state is cleared each frame.',
+            'Name reads are bounded and terminated; failed reads are reported.',
+            'Local player name defaults to HQuserTR_61; this is not an enemy-name selector.',
+            'Missing Logitech input remains optional; no replacement automated input backend was added.',
+            'The original game addresses and original player-lookup implementation are unchanged.',
+            'This is NOT a verified fix for compatibility with the installed game version.',
+            'Tests check actual marker draw commands with synthetic screen-space data, not real game entities or GPU pixels.',
+            '18 drawing cases run in each backend test, followed by 180 UI frames and failed-read reporting checks.',
+            'Extract into a new writable folder and launch BF1_External.exe instead of an older copy.',
+            'The header reads BF1 drawing diagnostics v2. Delete opens the menu after initialization.',
+            'Use Synthetic drawing test to show a clearly labelled fake marker independent of game data.',
+            'If real markers remain missing, attach BF1-diagnostics.txt generated beside the executable.',
+            'The file records counts, first failing stage, and Win32 read error; it contains no player-name list.',
+            'Do not install unverified drivers or disable security protections to run this build.',
+            'Read regression-missing.log and regression-available.log for actual results.',
             "Executable SHA256: $hash"
           ) | Set-Content (Join-Path $output 'BUILD-INFO.txt') -Encoding utf8
-          git diff 60b6e0dfccc0cfbca74b8349ea0d3d75a13ea9b5 HEAD -- R5Reloaded_External tests .github | Set-Content (Join-Path $output 'source-changes.patch') -Encoding utf8
-          if ($LASTEXITCODE -ne 0) { throw 'Could not generate the source patch.' }
-          "### Application build succeeded`nSource: $env:GITHUB_SHA`nSHA256: $hash" | Add-Content $env:GITHUB_STEP_SUMMARY
+          git diff a32737920d5653fed4dc624b5db7ae04ec601803 HEAD -- R5Reloaded_External tests .github | Set-Content (Join-Path $output 'source-changes.patch') -Encoding utf8
+          if ($LASTEXITCODE -ne 0) { throw 'Could not generate source patch.' }
+          "### Application build succeeded`nSource: $env:GITHUB_SHA`nSHA256: $hash`nNot tested against a running game." | Add-Content $env:GITHUB_STEP_SUMMARY
 
-      - name: Build and run optional-backend regression tests
+      - name: Build and run marker and UI regression tests
         timeout-minutes: 4
         run: |
           $ErrorActionPreference = 'Stop'
-          $output = Join-Path $env:GITHUB_WORKSPACE 'artifacts\BF1-Windows-x64-optional-mouse'
+          $output = Join-Path $env:GITHUB_WORKSPACE 'artifacts\BF1-Windows-x64-drawing-v2'
           $testOutput = Join-Path $env:GITHUB_WORKSPACE '.build\tests\out'
           $testIntermediate = Join-Path $env:GITHUB_WORKSPACE '.build\tests\obj'
           New-Item -ItemType Directory -Force -Path $testOutput, $testIntermediate | Out-Null
@@ -84,7 +88,7 @@ jobs:
             $process = Start-Process -FilePath $testExe -ArgumentList $case -PassThru -NoNewWindow -RedirectStandardOutput $stdout -RedirectStandardError $stderr
             if (-not $process.WaitForExit(30000)) {
               & taskkill /PID $process.Id /T /F
-              throw "Regression $case timed out (possible blocking UI regression)."
+              throw "Regression $case timed out."
             }
             $process.WaitForExit()
             $process.Refresh()
@@ -92,13 +96,13 @@ jobs:
             Get-Content $stderr
             if ($process.ExitCode -ne 0) { throw "Regression $case failed: $($process.ExitCode)" }
           }
-          'Both mock-backend cases passed: 180 UI frames each, one initialization probe, zero mouse commands.' | Add-Content $env:GITHUB_STEP_SUMMARY
+          'Passed: 18 marker cases per mock-backend case, 180 UI frames per case, and failed-read reporting. Live game compatibility is unverified.' | Add-Content $env:GITHUB_STEP_SUMMARY
 
-      - name: Upload executable and build diagnostics
+      - name: Upload executable and diagnostics
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
-          name: BF1-Windows-x64-optional-mouse
-          path: artifacts/BF1-Windows-x64-optional-mouse/
+          name: BF1-Windows-x64-drawing-v2
+          path: artifacts/BF1-Windows-x64-drawing-v2/
           if-no-files-found: error
           retention-days: 7
