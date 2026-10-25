@@ -4,6 +4,7 @@
 #include <TlHelp32.h>
 #include <cstdint>
 #include <cstring>
+#include <limits>
 #include <string_view>
 #include <thread>
 #include <type_traits>
@@ -24,8 +25,11 @@ public:
         DWORD firstError = ERROR_SUCCESS;
         uintptr_t firstAddress = 0;
         const char* firstStage = nullptr;
+        SIZE_T firstRequested = 0;
+        SIZE_T firstTransferred = 0;
+        const char* firstOperation = nullptr;
     };
-    // These diagnostics are owned by the rendering thread, not shared workers.
+    // Rendering-thread only, as in the original implementation.
     mutable ReadReport report{};
     mutable const char* readStage = "unspecified";
     mutable bool lastReadSucceeded = false;
@@ -40,26 +44,55 @@ public:
         lastReadSucceeded = false;
     }
 
+    // Caller must supply a local buffer containing at least size writable bytes.
     bool ReadBuffer(uintptr_t address, void* output, SIZE_T size) const noexcept
     {
         ++report.attempts;
+        lastReadSucceeded = false;
         SIZE_T transferred = 0;
-        const BOOL result = ReadProcessMemory(pHandle,
-            reinterpret_cast<const void*>(address), output, size, &transferred);
-        const DWORD error = result ? ERROR_PARTIAL_COPY : GetLastError();
-        lastReadSucceeded = result != FALSE && transferred == size;
-        if (!lastReadSucceeded)
+        DWORD error = ERROR_SUCCESS;
+        const char* operation = "argument validation";
+
+        if (!output || size == 0)
+            error = ERROR_INVALID_PARAMETER;
+        else if (!pHandle || pHandle == INVALID_HANDLE_VALUE)
+            error = ERROR_INVALID_HANDLE;
+        else if (!address || size - 1 > (std::numeric_limits<uintptr_t>::max)() - address)
+            error = ERROR_INVALID_ADDRESS;
+        else
         {
-            ++report.failures;
-            if (report.firstStage == nullptr)
+            operation = "ReadProcessMemory";
+            SetLastError(ERROR_SUCCESS);
+            const BOOL ok = ReadProcessMemory(
+                pHandle, reinterpret_cast<const void*>(address),
+                output, size, &transferred);
+            // Capture immediately, before logging or any other Windows call.
+            error = ok ? ERROR_SUCCESS : GetLastError();
+
+            if (ok && transferred == size)
             {
-                report.firstStage = readStage;
-                report.firstAddress = address;
-                report.firstError = error != ERROR_SUCCESS ? error : ERROR_READ_FAULT;
+                lastReadSucceeded = true;
+                return true;
             }
-            std::memset(output, 0, size);
+            if (ok)
+                error = ERROR_PARTIAL_COPY;
+            else if (error == ERROR_SUCCESS)
+                error = ERROR_READ_FAULT;
         }
-        return lastReadSucceeded;
+
+        ++report.failures;
+        if (report.failures == 1)
+        {
+            report.firstStage = readStage;
+            report.firstError = error;
+            report.firstAddress = address;
+            report.firstRequested = size;
+            report.firstTransferred = transferred;
+            report.firstOperation = operation;
+        }
+        if (output && size)
+            std::memset(output, 0, size);
+        return false;
     }
 
     template <typename T>
@@ -73,11 +106,9 @@ public:
         return value;
     }
 
+    // This class now opens read-only handles. Accidental writes are compile errors.
     template <typename T>
-    constexpr void Write(const uintptr_t& address, const T& value) const noexcept
-    {
-        WriteProcessMemory(pHandle, reinterpret_cast<void*>(address), &value, sizeof(T), NULL);
-    }
+    void Write(const uintptr_t&, const T&) const = delete;
 };
 
 extern Memory m;
