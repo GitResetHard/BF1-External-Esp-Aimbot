@@ -105,6 +105,13 @@ namespace
                  << "ReadAttempts=" << status.reads.attempts << " ReadFailures=" << status.reads.failures
                  << " FirstWin32Error=" << status.reads.firstError << '\n'
                  << "FirstFailedStage=" << (status.reads.firstStage ? status.reads.firstStage : "none") << '\n'
+                 << "TargetPID=" << m.PID
+                 << " PointerBits=" << sizeof(uintptr_t) * 8 << '\n'
+                 << "FirstOperation="
+                 << (status.reads.firstOperation ? status.reads.firstOperation : "none") << '\n'
+                 << "FirstAddress=0x" << std::hex << status.reads.firstAddress << std::dec
+                 << " Requested=" << status.reads.firstRequested
+                 << " Transferred=" << status.reads.firstTransferred << '\n'
                  << "Original game addresses are unchanged and unverified for the installed game build.\n"
                  << "Synthetic draw-test markers are not included in these counters.\n";
             std::ofstream output(DiagnosticPath(), std::ios::trunc);
