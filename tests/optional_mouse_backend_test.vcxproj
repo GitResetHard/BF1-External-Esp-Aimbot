@@ -1,0 +1,54 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Project DefaultTargets="Build" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup Label="ProjectConfigurations">
+    <ProjectConfiguration Include="Release|x64">
+      <Configuration>Release</Configuration>
+      <Platform>x64</Platform>
+    </ProjectConfiguration>
+  </ItemGroup>
+  <PropertyGroup Label="Globals">
+    <VCProjectVersion>17.0</VCProjectVersion>
+    <Keyword>Win32Proj</Keyword>
+    <ProjectGuid>{5F183A62-A8DC-4DF9-96B1-606718FDBDA5}</ProjectGuid>
+    <WindowsTargetPlatformVersion>10.0</WindowsTargetPlatformVersion>
+  </PropertyGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.Default.props" />
+  <PropertyGroup Label="Configuration">
+    <ConfigurationType>Application</ConfigurationType>
+    <UseDebugLibraries>false</UseDebugLibraries>
+    <PlatformToolset>v143</PlatformToolset>
+    <CharacterSet>Unicode</CharacterSet>
+  </PropertyGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.props" />
+  <PropertyGroup>
+    <TargetName>optional_mouse_backend_test</TargetName>
+  </PropertyGroup>
+  <ItemDefinitionGroup>
+    <ClCompile>
+      <WarningLevel>Level3</WarningLevel>
+      <SDLCheck>true</SDLCheck>
+      <ConformanceMode>true</ConformanceMode>
+      <LanguageStandard>stdcpp17</LanguageStandard>
+      <PreprocessorDefinitions>_CONSOLE;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <AdditionalIncludeDirectories>$(ProjectDir)..\R5Reloaded_External;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+    </ClCompile>
+    <Link>
+      <SubSystem>Console</SubSystem>
+      <AdditionalDependencies>d3d11.lib;dwmapi.lib;ntdll.lib;%(AdditionalDependencies)</AdditionalDependencies>
+    </Link>
+  </ItemDefinitionGroup>
+  <ItemGroup>
+    <ClCompile Include="optional_mouse_backend_test.cpp" />
+    <ClCompile Include="..\R5Reloaded_External\overlay.cpp" />
+    <ClCompile Include="..\R5Reloaded_External\Utils\Config\Config.cpp" />
+    <ClCompile Include="..\R5Reloaded_External\ImGui\customed.cpp" />
+    <ClCompile Include="..\R5Reloaded_External\ImGui\imgui.cpp" />
+    <ClCompile Include="..\R5Reloaded_External\ImGui\imgui_demo.cpp" />
+    <ClCompile Include="..\R5Reloaded_External\ImGui\imgui_draw.cpp" />
+    <ClCompile Include="..\R5Reloaded_External\ImGui\imgui_tables.cpp" />
+    <ClCompile Include="..\R5Reloaded_External\ImGui\imgui_widgets.cpp" />
+    <ClCompile Include="..\R5Reloaded_External\ImGui\imgui_impl_win32.cpp" />
+    <ClCompile Include="..\R5Reloaded_External\ImGui\imgui_impl_dx11.cpp" />
+  </ItemGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
+</Project>
